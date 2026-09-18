@@ -254,29 +254,45 @@ node test/test_server.js
 
 ---
 
-## 6. Docker Fallback Instructions
+## 6. Docker Containerization & Orchestration
 
 The service can be run in any containerized environment binding to port `3000` and `0.0.0.0`.
 
-### Build Container Image
+### Option A: Using Docker Compose (Recommended)
 ```bash
-docker build -t gridwise-optimizer:latest .
+# Build and start container with env injection
+docker compose up -d --build
+
+# View container logs
+docker compose logs -f
+
+# Stop container
+docker compose down
 ```
 
-### Run Container
+### Option B: Using Docker CLI Direct
 ```bash
+# Build Container Image
+docker build -t gridwise-optimizer:latest .
+
+# Run Container with env file
 docker run -d \
   --name gridwise-service \
   -p 3000:3000 \
-  -e PORT=3000 \
-  -e OPENAI_API_KEY="your-api-key-here" \
-  -e OPENAI_MODEL="gpt-4o-mini" \
+  --env-file env \
   gridwise-optimizer:latest
+```
+
+### Option C: Using npm Scripts
+```bash
+npm run docker:build
+npm run docker:run
+npm run docker:compose
 ```
 
 ### Verify Container Health
 ```bash
-curl -X GET http://localhost:3000/health
+curl -X GET http://localhost:8000/health
 ```
 
 ---

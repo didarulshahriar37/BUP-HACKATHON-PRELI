@@ -1,5 +1,14 @@
 node_modules
 .env
-.env.local
+.env.*
+env
 *.log
+npm-debug.log*
 .git
+.gitignore
+.dockerignore
+.vscode
+.idea
+coverage
+docker-compose*.yml
+

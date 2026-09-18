@@ -7,7 +7,10 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "test": "node test/test_samples.js"
+    "test": "node test/test_samples.js",
+    "docker:build": "docker build -t gridwise-optimizer:latest .",
+    "docker:run": "docker run -p 3000:3000 --env-file env gridwise-optimizer:latest",
+    "docker:compose": "docker compose up --build"
   },
   "keywords": ["energy-optimization", "llm", "smart-campus", "hackathon"],
   "author": "",
