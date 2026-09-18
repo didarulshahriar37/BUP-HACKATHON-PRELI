@@ -1,0 +1,21 @@
+{
+  "name": "gridwise-energy-optimizer",
+  "version": "1.0.0",
+  "description": "Smart Campus Energy Optimization API with LLM-Assisted Operator Directive Interpretation",
+  "main": "src/server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node test/test_samples.js"
+  },
+  "keywords": ["energy-optimization", "llm", "smart-campus", "hackathon"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "javascript-lp-solver": "^0.4.24",
+    "openai": "^4.86.1"
+  }
+}
