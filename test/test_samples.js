@@ -50,6 +50,8 @@ export async function runAllSampleTests(pipelineFn) {
   return { passed, total: cases.length, avgQuality };
 }
 
+import { runEnergyOptimizationPipeline } from '../src/pipeline.js';
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  console.log('Sample test runner is ready. Pass a pipeline function to evaluate.');
+  runAllSampleTests(runEnergyOptimizationPipeline);
 }
