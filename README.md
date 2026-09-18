@@ -43,19 +43,26 @@ GridWise is an automated energy scheduling service for smart campus microgrids. 
 1. **LLM Directive Interpreter (`src/llm/interpreter.js`)**:
    - Uses OpenAI `gpt-4o-mini` with deterministic JSON response schema.
    - Extracts all 6 supported directives: `solar_reduction`, `minimum_battery_reserve`, `no_charge_window`, `no_discharge_window`, `max_grid_window`, and `no_op`.
-   - Correctly normalizes start-inclusive, end-exclusive time windows, usable solar fractions (e.g. 80% reduction $\rightarrow$ `factor: 0.20`), and relative battery reserve percentages.
+   - Correctly normalizes start-inclusive, end-exclusive time windows, usable solar fractions (e.g. an 80% reduction means `factor: 0.20`), and relative battery reserve percentages.
 2. **Deterministic Guardrail Validator (`src/guardrails/validator.js`)**:
    - Acts as a programmatic safety boundary before mathematical optimization.
-   - Normalizes note mapping ($0 \dots N-1$), enforces strictly ascending unique integer hours ($0 \dots 23$), clamps numeric bounds, and converts unparseable or hallucinated output into safe `no_op` entries.
+   - Normalizes note mapping (`0..N-1`), enforces strictly ascending unique integer hours (`0..23`), clamps numeric bounds, and converts unparseable or hallucinated output into safe `no_op` entries.
 3. **Mathematical Energy Optimizer (`src/optimizer/energyOptimizer.js`)**:
    - Continuous Linear Programming solver using `javascript-lp-solver`.
-   - Minimizes total grid cost $\sum_{h=0}^{23} (\text{grid\_kwh}[h] \times \text{tariff}[h])$ while strictly respecting:
-     - Hourly energy balance: $\text{grid}_h + \text{solar\_used}_h + \text{discharge}_h = \text{demand}_h + \text{charge}_h$
-     - Solar generation limits and curtailment
-     - Battery capacity bounds and active directive reserves
+   - Minimizes total grid cost over the 24-hour horizon:
+     ```
+     total_cost_bdt = SUM(grid_kwh[h] * tariff_bdt_per_kwh[h]) for h = 0..23
+     ```
+   - Strictly enforces:
+     - **Hourly Energy Balance**:
+       ```
+       grid_kwh[h] + solar_used_kwh[h] + battery_discharge_kwh[h] = demand_kwh[h] + battery_charge_kwh[h]
+       ```
+     - Solar generation limits and curtailment (`0 <= solar_used_kwh[h] <= effective_solar[h]`)
+     - Battery capacity bounds and active directive reserves (`active_reserve[h] <= battery_energy[h] <= capacity_kwh`)
      - Hourly charge/discharge rate limits
      - Forbidden charging/discharging windows and grid import caps
-     - End-of-day battery neutrality ($E_{23} = E_{\text{initial}}$)
+     - End-of-day battery neutrality (`battery_energy_after_kwh[23] == initial_energy_kwh`)
 
 ---
 
@@ -223,10 +230,12 @@ npm test
 ### Verification Checks Performed:
 - **Directive Accuracy**: Compares extracted directive types, unique sorted hours, and numeric values against ground truth.
 - **Physical GridWise Balance Replay**: Hour-by-hour independent simulation verifying:
-  $$\text{grid\_kwh}[h] + \text{solar\_used\_kwh}[h] + \text{battery\_discharge\_kwh}[h] = \text{demand\_kwh}[h] + \text{battery\_charge\_kwh}[h]$$
-- **Battery Energy Neutrality**: Ensures $E_{\text{after}}[23] == E_{\text{initial}}$.
+  ```
+  grid_kwh[h] + solar_used_kwh[h] + battery_discharge_kwh[h] = demand_kwh[h] + battery_charge_kwh[h]
+  ```
+- **Battery Energy Neutrality**: Ensures `battery_energy_after_kwh[23] == initial_energy_kwh`.
 - **Operational Window Adherence**: Verifies zero charge during `no_charge_window`, zero discharge during `no_discharge_window`, and grid limits during `max_grid_window`.
-- **Cost Minimization**: Verifies $\text{quality\_ratio} = \min(1, \text{organizer\_cost} / \text{team\_cost}) = 1.00$ ($10.00 / 10.00$ points).
+- **Cost Minimization**: Verifies `quality_ratio = min(1, organizer_optimal_cost / recalculated_team_cost) = 1.00` (10.00 / 10.00 points).
 
 ### Unit & Subsystem Tests:
 ```bash
