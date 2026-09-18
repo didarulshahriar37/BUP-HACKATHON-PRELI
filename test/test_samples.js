@@ -6,12 +6,13 @@ import { evaluateSolution } from './judge_replay.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Runs the pipeline against the 10 public benchmark cases
 export async function runAllSampleTests(pipelineFn) {
   const dataRaw = fs.readFileSync(path.join(__dirname, '../data/sample_cases.json'), 'utf8');
   const { cases } = JSON.parse(dataRaw);
 
   console.log(`\n======================================================`);
-  console.log(`Running Validation on ${cases.length} Public Benchmark Cases`);
+  console.log(`Evaluating ${cases.length} Public Benchmark Cases`);
   console.log(`======================================================\n`);
 
   let passed = 0;

@@ -5,22 +5,19 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-/**
- * Independent Judge Replay and Verification Engine
- * Implements all checks specified in:
- * - Section 08 & 09 of Participant Guide & Evaluation Rubric
- * - Section 09 & 11 of Preliminary Problem Statement
- */
-
+// 0.01 tolerance for floating-point comparisons as specified in the rules
 const TOLERANCE = 0.01;
 
+/**
+ * Replay the hourly schedule and verify all problem constraints & operator notes.
+ */
 export function evaluateSolution(input, response, expectedOutput = null) {
   const errors = [];
   const warnings = [];
 
-  // 1. Schema & Top-Level Validation
+  // Basic sanity checks on the response object
   if (!response) {
-    return { valid: false, errors: ['Null or undefined response received'], score: 0 };
+    return { valid: false, errors: ['Received empty response from service'], score: 0 };
   }
 
   if (response.scenario_id !== input.scenario_id) {
@@ -54,7 +51,7 @@ export function evaluateSolution(input, response, expectedOutput = null) {
     return { valid: false, errors, warnings, score: 0 };
   }
 
-  // 2. Directive Interpretation Verification
+  // Verify directive schema and parameter boundaries
   const allowedDirectives = [
     'solar_reduction',
     'minimum_battery_reserve',
@@ -69,14 +66,14 @@ export function evaluateSolution(input, response, expectedOutput = null) {
       errors.push(`directive_interpretation[${idx}].note_index is ${entry.note_index}, expected ${idx}`);
     }
     if (!allowedDirectives.includes(entry.directive_type)) {
-      errors.push(`Invalid directive_type "${entry.directive_type}" at index ${idx}`);
+      errors.push(`Unknown directive_type "${entry.directive_type}" at index ${idx}`);
     }
     if (entry.directive_type === 'no_op') {
       if (entry.applies !== false) {
-        errors.push(`no_op directive at index ${idx} must have applies = false`);
+        errors.push(`no_op at index ${idx} must have applies = false`);
       }
       if (entry.structured_adjustment !== null) {
-        errors.push(`no_op directive at index ${idx} must have structured_adjustment = null`);
+        errors.push(`no_op at index ${idx} must have structured_adjustment = null`);
       }
     } else {
       if (entry.applies !== true) {
@@ -89,7 +86,7 @@ export function evaluateSolution(input, response, expectedOutput = null) {
         if (!Array.isArray(adj.hours)) {
           errors.push(`structured_adjustment.hours must be an array at index ${idx}`);
         } else {
-          // Check hours are unique, sorted, 0..23
+          // Hours should be sorted, unique, and between 0 and 23
           for (let i = 0; i < adj.hours.length; i++) {
             const h = adj.hours[i];
             if (!Number.isInteger(h) || h < 0 || h > 23) {
@@ -119,7 +116,7 @@ export function evaluateSolution(input, response, expectedOutput = null) {
     }
   });
 
-  // Compare with expected directives if available
+  // Check extracted directives against expected ground truth
   let directiveMatch = true;
   if (expectedOutput && expectedOutput.directive_interpretation) {
     expectedOutput.directive_interpretation.forEach((exp, idx) => {
@@ -142,7 +139,6 @@ export function evaluateSolution(input, response, expectedOutput = null) {
           directiveMatch = false;
           errors.push(`Note ${idx}: expected structured_adjustment, got null`);
         } else {
-          // Compare hours
           const expHours = JSON.stringify(exp.structured_adjustment.hours || []);
           const actHours = JSON.stringify(actual.structured_adjustment.hours || []);
           if (expHours !== actHours) {
@@ -172,11 +168,9 @@ export function evaluateSolution(input, response, expectedOutput = null) {
     });
   }
 
-  // 3. Downstream Directives Application & GridWise Physical Consistency Replay
-  // Compute ground-truth active directives from expectedOutput (or from response if no expectedOutput)
+  // Apply directives to base scenario parameters for physical simulation
   const sourceDirectives = (expectedOutput?.directive_interpretation) || response.directive_interpretation;
   
-  // Calculate effective solar per hour
   const effectiveSolar = input.hours.map(h => h.solar_kwh);
   const minBatteryReserve = input.hours.map(() => input.battery.minimum_energy_kwh);
   const noChargeHours = new Set();
@@ -208,7 +202,7 @@ export function evaluateSolution(input, response, expectedOutput = null) {
     }
   });
 
-  // Replay hourly_plan hour-by-hour
+  // Replay battery states and verify energy balance hour by hour
   let currentBatteryEnergy = input.battery.initial_energy_kwh;
   let recomputedTotalGrid = 0;
   let recomputedTotalCost = 0;
@@ -221,17 +215,17 @@ export function evaluateSolution(input, response, expectedOutput = null) {
 
     const { grid_kwh, solar_used_kwh, battery_action, battery_kwh, battery_energy_after_kwh } = step;
 
-    // Non-negative checks
+    // Sanity check: no negative numbers
     if (grid_kwh < -TOLERANCE || solar_used_kwh < -TOLERANCE || battery_kwh < -TOLERANCE) {
       errors.push(`Hour ${h}: negative energy values detected`);
     }
 
-    // Solar usage <= effective solar
+    // Solar check
     if (solar_used_kwh > effectiveSolar[h] + TOLERANCE) {
       errors.push(`Hour ${h}: solar_used_kwh (${solar_used_kwh}) exceeds effective solar (${effectiveSolar[h]})`);
     }
 
-    // Battery action check
+    // Battery action validation
     if (!['charge', 'discharge', 'idle'].includes(battery_action)) {
       errors.push(`Hour ${h}: invalid battery_action "${battery_action}"`);
     }
@@ -247,7 +241,7 @@ export function evaluateSolution(input, response, expectedOutput = null) {
       errors.push(`Hour ${h}: discharge amount ${battery_kwh} exceeds max_discharge ${input.battery.max_discharge_kwh_per_hour}`);
     }
 
-    // Directive-specific limits
+    // Window constraints
     if (noChargeHours.has(h) && battery_action === 'charge' && battery_kwh > TOLERANCE) {
       errors.push(`Hour ${h}: charging occurred during active no_charge_window`);
     }
@@ -258,7 +252,7 @@ export function evaluateSolution(input, response, expectedOutput = null) {
       errors.push(`Hour ${h}: grid_kwh (${grid_kwh}) exceeds max_grid_window limit (${maxGridLimits[h]})`);
     }
 
-    // Battery state transition
+    // State transition calculation
     let expectedAfter = currentBatteryEnergy;
     if (battery_action === 'charge') {
       expectedAfter += battery_kwh;
@@ -269,7 +263,7 @@ export function evaluateSolution(input, response, expectedOutput = null) {
       errors.push(`Hour ${h}: battery_energy_after_kwh (${battery_energy_after_kwh}) does not match transition (${expectedAfter})`);
     }
 
-    // Battery bounds
+    // Energy bounds check
     if (battery_energy_after_kwh < minBatteryReserve[h] - TOLERANCE) {
       errors.push(`Hour ${h}: battery energy (${battery_energy_after_kwh}) below reserve (${minBatteryReserve[h]})`);
     }
@@ -277,7 +271,7 @@ export function evaluateSolution(input, response, expectedOutput = null) {
       errors.push(`Hour ${h}: battery energy (${battery_energy_after_kwh}) exceeds capacity (${input.battery.capacity_kwh})`);
     }
 
-    // Energy balance: grid + solar_used + discharge = demand + charge
+    // Core balance equation: grid + solar_used + discharge = demand + charge
     const chargeKwh = battery_action === 'charge' ? battery_kwh : 0;
     const dischargeKwh = battery_action === 'discharge' ? battery_kwh : 0;
     const supply = grid_kwh + solar_used_kwh + dischargeKwh;
@@ -286,7 +280,7 @@ export function evaluateSolution(input, response, expectedOutput = null) {
       errors.push(`Hour ${h}: energy balance violated. Supply=${supply}, Demand=${demand}, diff=${Math.abs(supply - demand)}`);
     }
 
-    // Accumulate totals
+    // Update state for next step
     currentBatteryEnergy = battery_energy_after_kwh;
     recomputedTotalGrid += grid_kwh;
     recomputedTotalCost += grid_kwh * input.hours[h].tariff_bdt_per_kwh;
@@ -295,12 +289,12 @@ export function evaluateSolution(input, response, expectedOutput = null) {
     }
   });
 
-  // End-of-day battery neutrality
+  // End-of-day battery neutrality: must end where it started
   if (Math.abs(currentBatteryEnergy - input.battery.initial_energy_kwh) > TOLERANCE) {
     errors.push(`End-of-day battery energy (${currentBatteryEnergy}) does not return to initial (${input.battery.initial_energy_kwh})`);
   }
 
-  // Check reported totals vs recomputed totals
+  // Cross-check reported summary numbers against recalculated values
   if (Math.abs(response.total_grid_kwh - recomputedTotalGrid) > TOLERANCE) {
     errors.push(`Reported total_grid_kwh (${response.total_grid_kwh}) does not match recomputed (${recomputedTotalGrid})`);
   }
@@ -311,7 +305,7 @@ export function evaluateSolution(input, response, expectedOutput = null) {
     errors.push(`Reported peak_grid_kwh (${response.peak_grid_kwh}) does not match recomputed (${recomputedPeakGrid})`);
   }
 
-  // Cost ratio vs expected
+  // Calculate optimization quality ratio
   let qualityRatio = 1.0;
   if (expectedOutput) {
     const expCost = expectedOutput.total_cost_bdt;
